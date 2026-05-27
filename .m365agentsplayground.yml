@@ -1,0 +1,62 @@
+# yaml-language-server: $schema=https://aka.ms/teams-app-test-tool-config/0.1.1/config.schema.json
+version: "0.1.1"
+tenantId: 00000000-0000-0000-0000-000000000001
+bot:
+  id: bot-id
+  name: Data Assistant
+currentUser:
+  id: user-id-0
+  name: Test User
+  userPrincipleName: testuser@contoso.com
+  aadObjectId: 00000000-0000-0000-0000-000000000001
+  givenName: Test
+  surname: User
+  email: testuser@contoso.com
+users:
+  - id: user-id-1
+    name: Alex Johnson
+    userPrincipleName: alexj@contoso.com
+    aadObjectId: 00000000-0000-0000-0000-000000000002
+    givenName: Alex
+    surname: Johnson
+    email: alexj@contoso.com
+  - id: user-id-2
+    name: Priya Sharma
+    userPrincipleName: priyas@contoso.com
+    aadObjectId: 00000000-0000-0000-0000-000000000003
+    givenName: Priya
+    surname: Sharma
+    email: priyas@contoso.com
+  - id: user-id-3
+    name: Michael Chen
+    userPrincipleName: michaelc@contoso.com
+    aadObjectId: 00000000-0000-0000-0000-000000000004
+    givenName: Michael
+    surname: Chen
+    email: michaelc@contoso.com
+  - id: user-id-4
+    name: Sarah Williams
+    userPrincipleName: sarahw@contoso.com
+    aadObjectId: 00000000-0000-0000-0000-000000000005
+    givenName: Sarah
+    surname: Williams
+    email: sarahw@contoso.com
+  - id: user-id-5
+    name: Ambika Rao
+    userPrincipleName: ambikar@contoso.com
+    aadObjectId: 00000000-0000-0000-0000-000000000006
+    givenName: Ambika
+    surname: Rao
+    email: ambikar@contoso.com
+personalChat:
+  id: personal-chat-id
+groupChat:
+  id: group-chat-id
+  name: Finance Analytics Team
+team:
+  id: team-id
+  name: Finance Team
+  aadGroupId: 00000000-0000-0000-0000-000000000031
+  channels:
+    - id: channel-general-id
+      name: General

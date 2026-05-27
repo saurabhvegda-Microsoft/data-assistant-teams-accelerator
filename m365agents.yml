@@ -1,0 +1,28 @@
+# Agents Toolkit project configuration
+version: v1.0
+
+projectSettings:
+  appName: data-assistant-teams-bot
+  programmingLanguage: typescript
+
+provision:
+  - uses: arm/deploy
+    with:
+      subscriptionId: ${{AZURE_SUBSCRIPTION_ID}}
+      resourceGroupName: ${{RESOURCE_GROUP_NAME}}
+      templates:
+        - path: ./infra/main.bicep
+          parameters: ./infra/azure.parameters.json
+          deploymentName: data-assistant-teams-bot
+
+deploy:
+  - uses: cli/runNpmCommand
+    with:
+      args: install
+  - uses: cli/runNpmCommand
+    with:
+      args: run build
+  - uses: azureAppService/zipDeploy
+    with:
+      artifactFolder: .
+      resourceId: ${{APP_SERVICE_RESOURCE_ID}}
