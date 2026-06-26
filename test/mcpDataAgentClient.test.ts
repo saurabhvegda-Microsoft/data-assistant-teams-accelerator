@@ -66,10 +66,13 @@ describe("McpDataAgentClient", () => {
 });
 
 describe("McpDataAgentClient auth headers", () => {
-  async function captureHeadersFor(options: {
-    getAuthToken?: () => Promise<string | undefined>;
-    apiKey?: string;
-  }) {
+  async function captureHeadersFor(
+    options: {
+      getAuthToken?: () => Promise<string | undefined>;
+      apiKey?: string;
+    },
+    user: UserContext = USER
+  ) {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const server = buildMockMcpServer();
     await server.connect(serverTransport);
@@ -81,7 +84,7 @@ describe("McpDataAgentClient auth headers", () => {
         return clientTransport;
       },
     });
-    await client.query("revenue by region", USER);
+    await client.query("revenue by region", user);
     await server.close();
     return captured;
   }
@@ -108,6 +111,14 @@ describe("McpDataAgentClient auth headers", () => {
       apiKey: "fallback-key",
     });
     expect(headers["Authorization"]).toBe("Bearer fallback-key");
+  });
+
+  it("prefers the per-user token (userContext.userToken) over the static apiKey", async () => {
+    const headers = await captureHeadersFor(
+      { apiKey: "static-key" },
+      { ...USER, userToken: "user-jwt-xyz" }
+    );
+    expect(headers["Authorization"]).toBe("Bearer user-jwt-xyz");
   });
 });
 

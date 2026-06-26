@@ -12,16 +12,32 @@ import { createAuditMiddleware } from "./middleware/auditMiddleware";
 import { createRateLimitMiddleware } from "./middleware/rateLimitMiddleware";
 import { createPersonalChatOnlyMiddleware } from "./middleware/personalChatOnlyMiddleware";
 import { UserContext } from "./types";
+import { createUserAuthService, UserAuthService } from "./services/userAuth";
 import { createLogger } from "./logger";
 
 const logger = createLogger("bot");
 
+/**
+ * Best-effort extraction of the Teams SSO token (the OBO assertion) for the
+ * current turn. With Teams SSO configured, the token arrives on the
+ * `signin/tokenExchange` invoke activity's value. Completing the silent
+ * sign-in/consent flow (OAuthPrompt / Authorization.exchangeToken) requires an
+ * Azure Bot OAuth connection — see the README "User authentication" section.
+ */
+function extractSsoAssertion(context: TurnContext): string | undefined {
+  const value = (context.activity as { value?: { token?: unknown } }).value;
+  if (value && typeof value.token === "string") return value.token;
+  return undefined;
+}
+
 export class DataAssistantBot extends ActivityHandler {
   private dataAgentClient: IDataAgentClient;
+  private userAuthService?: UserAuthService;
 
   constructor() {
     super();
     this.dataAgentClient = createDataAgentClient();
+    this.userAuthService = createUserAuthService();
 
     // PCO guard runs FIRST so blocked contexts short-circuit before audit and rate-limit run.
     this.onTurn(createPersonalChatOnlyMiddleware());
@@ -53,6 +69,8 @@ export class DataAssistantBot extends ActivityHandler {
         conversationId: context.activity.conversation?.id || "unknown",
         channelId: context.activity.channelId || "unknown",
       };
+
+      await this.resolveUserToken(context, userContext);
 
       // Stream interim progress (the MCP's "thoughts") as Teams informative
       // updates when the channel supports streaming (personal chat). Otherwise
@@ -120,6 +138,31 @@ export class DataAssistantBot extends ActivityHandler {
 
   async checkDependencyHealth(): Promise<{ status: string; latency: number }> {
     return this.dataAgentClient.healthCheck();
+  }
+
+  /**
+   * Resolves the per-user Data Agent token for this turn (Teams SSO + OBO) and
+   * stashes it on the userContext. No-op unless user auth is enabled; never
+   * throws (falls back to the client's static credential on failure).
+   */
+  private async resolveUserToken(
+    context: TurnContext,
+    userContext: UserContext
+  ): Promise<void> {
+    if (!this.userAuthService?.isEnabled()) return;
+    try {
+      const assertion = extractSsoAssertion(context);
+      const token = await this.userAuthService.getDataAgentToken(
+        assertion,
+        userContext.userId
+      );
+      if (token) userContext.userToken = token;
+    } catch (err) {
+      logger.warn("userAuth.resolveFailed", {
+        userId: userContext.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   private async deliver(

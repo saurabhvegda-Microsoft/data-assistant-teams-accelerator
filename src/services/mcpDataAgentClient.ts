@@ -154,8 +154,10 @@ export class McpDataAgentClient implements IDataAgentClient {
     userContext?: UserContext
   ): Promise<Record<string, string>> {
     const headers: Record<string, string> = {};
-    let token: string | undefined;
-    if (this.options.getAuthToken) {
+    // Prefer the per-user Data Agent token resolved by the bot (Teams SSO + OBO);
+    // fall back to the configured token provider, then the static API key.
+    let token: string | undefined = userContext?.userToken;
+    if (!token && this.options.getAuthToken) {
       try {
         token = await this.options.getAuthToken(userContext);
       } catch (err) {

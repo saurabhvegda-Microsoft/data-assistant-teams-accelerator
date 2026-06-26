@@ -4,6 +4,8 @@ export interface UserContext {
   displayName?: string;
   conversationId: string;
   channelId: string;
+  /** Per-user Data Agent access token (Teams SSO + OBO), resolved per turn. */
+  userToken?: string;
 }
 
 export interface ConversationMemberInfo {

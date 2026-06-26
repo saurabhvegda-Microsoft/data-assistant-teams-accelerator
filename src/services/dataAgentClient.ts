@@ -65,8 +65,10 @@ export class DataAgentClient implements IDataAgentClient {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
         };
-        if (this.apiKey) {
-          headers["Authorization"] = `Bearer ${this.apiKey}`;
+        // Prefer the per-user token (Teams SSO + OBO); fall back to the static key.
+        const authToken = userContext?.userToken ?? this.apiKey;
+        if (authToken) {
+          headers["Authorization"] = `Bearer ${authToken}`;
         }
         if (userContext?.aadObjectId) {
           headers["X-User-AAD-Object-Id"] = userContext.aadObjectId;

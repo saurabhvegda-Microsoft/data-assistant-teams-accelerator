@@ -347,6 +347,34 @@ Stateless policy is always enforced by code: each query is single-turn and inclu
 
 See [docs/PERSONAL_CHAT_ONLY_PLAN.md](docs/PERSONAL_CHAT_ONLY_PLAN.md) for rationale and verification.
 
+## User authentication (Teams SSO + On-Behalf-Of)
+
+By default the bot calls the Data Agent with a static service credential
+(`DATA_AGENT_API_KEY`) and passes the caller's id as a header. To have the Data
+Agent receive the **end user's own JWT** — so Row-Level Security is enforced for
+the actual user rather than a shared identity — enable per-user auth:
+
+1. **Expose an API scope** on the Data Agent's Entra app registration, e.g.
+   `api://<data-agent-app-id>/access_as_user`.
+2. **Configure Teams SSO** for the bot: the manifest declares `webApplicationInfo`
+   (`id` = bot app id, `resource` = `AAD_APPLICATION_ID_URI`, the bot's
+   Application ID URI). Grant the bot app delegated permission to the Data Agent
+   scope and admin-consent.
+3. **Set env** (see `env/.env.*.example`): `USER_AUTH_ENABLED=true`,
+   `DATA_AGENT_SCOPE`, and — if the OBO confidential client differs from the bot —
+   `AAD_CLIENT_ID` / `AAD_CLIENT_SECRET` / `AAD_TENANT_ID`.
+
+At runtime the bot takes the user's Teams SSO token and performs an OAuth 2.0
+**On-Behalf-Of** exchange (`src/services/userAuth.ts`) for a Data Agent-scoped
+token, sent as `Authorization: Bearer` on each request. Tokens are cached per
+user and never logged. When disabled (the default), behavior is unchanged.
+
+> The OBO exchange is implemented and unit-tested. Acquiring the SSO assertion
+> silently on every turn requires an Azure Bot **OAuth connection** (or the
+> `signin/tokenExchange` invoke flow); until that is configured,
+> `getDataAgentToken` returns no token and the bot falls back to the static
+> credential.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
