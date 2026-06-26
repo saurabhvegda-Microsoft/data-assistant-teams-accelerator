@@ -2,8 +2,9 @@ import {
   ActivityHandler,
   TurnContext,
   MessageFactory,
+  StreamingResponse,
 } from "@microsoft/agents-hosting";
-import { createDataAgentClient, IDataAgentClient } from "./services/dataAgentClient";
+import { createDataAgentClient, IDataAgentClient, ProgressUpdate } from "./services/dataAgentClient";
 import { buildQueryResultCard } from "./cards/queryResultCard";
 import { buildErrorCard } from "./cards/errorCard";
 import { buildWelcomeCard } from "./cards/welcomeCard";
@@ -53,17 +54,39 @@ export class DataAssistantBot extends ActivityHandler {
         channelId: context.activity.channelId || "unknown",
       };
 
-      await context.sendActivity({ type: "typing" } as any);
+      // Stream interim progress (the MCP's "thoughts") as Teams informative
+      // updates when the channel supports streaming (personal chat). Otherwise
+      // fall back to a typing indicator + a single final card.
+      const streamingEnabled =
+        (process.env.STREAMING_ENABLED ?? "true") !== "false";
+      const stream = new StreamingResponse(context);
+      const useStreaming = streamingEnabled && stream.isStreamingChannel;
+
+      const onProgress = useStreaming
+        ? (update: ProgressUpdate) =>
+            stream.queueInformativeUpdate(update.message.slice(0, 1000))
+        : undefined;
+
+      if (useStreaming) {
+        stream.queueInformativeUpdate("Working on your question…");
+      } else {
+        await context.sendActivity({ type: "typing" } as any);
+      }
 
       const startTime = Date.now();
       logger.info("query.start", {
         userId: userContext.userId,
         aadObjectId: userContext.aadObjectId,
+        streaming: useStreaming,
         query,
       });
 
       try {
-        const result = await this.dataAgentClient.query(query, userContext);
+        const result = await this.dataAgentClient.query(
+          query,
+          userContext,
+          onProgress
+        );
 
         logger.info("query.complete", {
           userId: userContext.userId,
@@ -71,16 +94,12 @@ export class DataAssistantBot extends ActivityHandler {
           duration: Date.now() - startTime,
         });
 
-        if (result.success && result.data) {
-          const card = buildQueryResultCard(result.data, query);
-          await context.sendActivity(MessageFactory.attachment(card));
-        } else {
-          const card = buildErrorCard(
-            result.error || "Unknown error",
-            result.suggestions
-          );
-          await context.sendActivity(MessageFactory.attachment(card));
-        }
+        const card =
+          result.success && result.data
+            ? buildQueryResultCard(result.data, query)
+            : buildErrorCard(result.error || "Unknown error", result.suggestions);
+
+        await this.deliver(context, stream, useStreaming, card);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Unexpected error";
@@ -92,7 +111,7 @@ export class DataAssistantBot extends ActivityHandler {
         const card = buildErrorCard(
           `Trouble connecting to data service: ${message}`
         );
-        await context.sendActivity(MessageFactory.attachment(card));
+        await this.deliver(context, stream, useStreaming, card);
       }
 
       await next();
@@ -101,6 +120,25 @@ export class DataAssistantBot extends ActivityHandler {
 
   async checkDependencyHealth(): Promise<{ status: string; latency: number }> {
     return this.dataAgentClient.healthCheck();
+  }
+
+  private async deliver(
+    context: TurnContext,
+    stream: StreamingResponse,
+    useStreaming: boolean,
+    card: ReturnType<typeof buildQueryResultCard>
+  ): Promise<void> {
+    if (useStreaming) {
+      try {
+        stream.setGeneratedByAILabel(true);
+        stream.setAttachments([card]);
+        await stream.endStream();
+        return;
+      } catch {
+        // Streaming failed mid-flight — fall back to a normal message.
+      }
+    }
+    await context.sendActivity(MessageFactory.attachment(card));
   }
 
   private removeMentions(context: TurnContext): string {

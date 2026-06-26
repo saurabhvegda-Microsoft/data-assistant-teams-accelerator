@@ -62,4 +62,12 @@ describe("MockDataAgentClient", () => {
     expect(result.data?.sql).toBeDefined();
     expect(result.data?.sql).toContain("SELECT");
   });
+
+  it("emits staged progress updates when an onProgress callback is provided", async () => {
+    const updates: { message: string; progress?: number; total?: number }[] = [];
+    await client.query("revenue by region", undefined, (u) => updates.push(u));
+    expect(updates.length).toBe(4);
+    expect(updates[0].total).toBe(4);
+    expect(updates.some((u) => u.message.includes("Generating SQL"))).toBe(true);
+  });
 });

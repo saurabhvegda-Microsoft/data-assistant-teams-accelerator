@@ -17,9 +17,11 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "mock-api": "ts-node tools/mockDataAgentApi.ts",
+    "mock-mcp": "ts-node tools/mockMcpServer.ts",
     "dev:full": "concurrently \"npm run mock-api\" \"cross-env USE_MOCK_CLIENT=false DATA_AGENT_API_BASE_URL=http://localhost:4000 DISABLE_AUTH=true npm run dev\"",
     "dev:teams": "concurrently -k \"npm run mock-api\" \"cross-env USE_MOCK_CLIENT=false DATA_AGENT_API_BASE_URL=http://localhost:4000 DISABLE_AUTH=false npm run dev\"",
     "dev:playground": "concurrently -k \"npm run mock-api\" \"cross-env USE_MOCK_CLIENT=false DATA_AGENT_API_BASE_URL=http://localhost:4000 DISABLE_AUTH=true npm run dev\"",
+    "dev:mcp": "concurrently -k \"npm run mock-mcp\" \"cross-env DATA_AGENT_CLIENT=mcp MCP_ENDPOINT_URL=http://localhost:4100/mcp DISABLE_AUTH=true npm run dev\"",
     "playground": "npx @microsoft/m365agentsplayground start --app-endpoint http://localhost:3978/api/messages --port 56150 --channel-id msteams",
     "test:e2e": "ts-node tools/testEndToEnd.ts",
     "watch": "tsc --watch",
@@ -32,6 +34,7 @@
     "@azure/monitor-opentelemetry-exporter": "^1.0.0-beta.32",
     "@microsoft/agents-hosting": "^1.5.2",
     "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/api-logs": "^0.218.0",
     "@opentelemetry/resources": "^2.7.1",
@@ -41,7 +44,8 @@
     "@opentelemetry/semantic-conventions": "^1.41.1",
     "axios": "^1.7.0",
     "dotenv": "^17.4.2",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

@@ -43,7 +43,7 @@ write-up.
 | Observability | OpenTelemetry SDK (`@opentelemetry/sdk-node` `^0.218.0`) + Azure Monitor exporter (`@azure/monitor-opentelemetry-exporter`) | Traces, metrics, structured JSON logs |
 | Adaptive Cards | v1.5 schema | Built in `src/cards/` (queryResultCard, errorCard, personalChatOnlyCard, welcomeCard) |
 | Language / runtime | TypeScript 5.4, Node.js **22 LTS** in container, ≥18 supported locally | `tsc` to `dist/`, no bundler |
-| Tests | Jest `^29.7.0` + ts-jest | 53 tests across 9 suites |
+| Tests | Jest `^29.7.0` + ts-jest | 71 tests across 10 suites |
 | Container | `node:22-alpine` base, `Dockerfile` at repo root | ~150 MB image |
 | Container registry | Azure Container Registry (Basic SKU) | Builds done in-cloud via `az acr build` (no local Docker required) |
 | Hosting | **Azure Container Apps** (Consumption plan, `min-replicas=1`) | Min-replicas pinned to 1 so the demo container stays warm |
@@ -245,6 +245,39 @@ App Service VM quota, but **on constrained constrained dev subscriptions you may
 ├── docs/                   # PRD, Architecture, Setup guide
 └── test/                   # Unit tests
 ```
+
+## Testing
+
+Type-check, unit tests, and lint:
+
+```bash
+npm run build     # tsc type-check + emit to dist/
+npm test          # Jest unit tests (71 across 10 suites)
+npm run lint      # ESLint
+```
+
+### Local MCP + streaming smoke test
+
+Exercise the MCP client and streamed progress updates end-to-end against the
+bundled mock MCP server — no Teams tenant or real Data Agent required:
+
+```pwsh
+# Terminal 1 — mock MCP server (Streamable HTTP on :4100)
+npm run mock-mcp
+
+# Terminal 2 — run the bot against it (MCP backend, auth disabled for local dev)
+npm run dev:mcp
+```
+
+Or drive the MCP client directly after `npm run build`:
+
+```pwsh
+node -e "(async()=>{const {McpDataAgentClient}=require('./dist/services/mcpDataAgentClient.js');const c=new McpDataAgentClient({endpointUrl:'http://localhost:4100/mcp'});const ups=[];const r=await c.query('revenue by region',{userId:'u1',conversationId:'c1',channelId:'msteams'},u=>ups.push(u.message));console.log('progress:',ups);console.log('result:',r.success,r.data&&r.data.type);})()"
+```
+
+You should see the staged progress messages followed by the mapped result. The
+client to use is selected by `DATA_AGENT_CLIENT` (`mock` | `rest` | `mcp`); set
+`STREAMING_ENABLED=false` to fall back to a typing indicator + single card.
 
 ## Documentation
 
