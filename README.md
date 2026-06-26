@@ -41,7 +41,7 @@ write-up.
 | Outbound HTTP | [`axios`](https://github.com/axios/axios) `^1.7.0` | Used by the SDK's ConnectorClient and our `services/dataAgentClient` |
 | Auth | `@azure/identity` `^4.13.1`, `@azure/core-auth` `^1.10.1` | App Reg client-secret flow; SDK handles MSAL internally |
 | Observability | OpenTelemetry SDK (`@opentelemetry/sdk-node` `^0.218.0`) + Azure Monitor exporter (`@azure/monitor-opentelemetry-exporter`) | Traces, metrics, structured JSON logs |
-| Adaptive Cards | v1.5 schema | Built in `src/cards/` (queryResultCard, errorCard, personalChatOnlyCard, welcomeCard) |
+| Adaptive Cards | v1.5 schema + Teams native charts (`Chart.Line` / `Chart.VerticalBar`) | Built in `src/cards/`; time-series render as native charts (toggle `NATIVE_CHARTS_ENABLED`), with a static image fallback |
 | Language / runtime | TypeScript 5.4, Node.js **22 LTS** in container, ≥18 supported locally | `tsc` to `dist/`, no bundler |
 | Tests | Jest `^29.7.0` + ts-jest | 71 tests across 10 suites |
 | Container | `node:22-alpine` base, `Dockerfile` at repo root | ~150 MB image |

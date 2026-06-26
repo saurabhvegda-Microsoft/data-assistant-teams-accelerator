@@ -1,6 +1,19 @@
 import { CardFactory } from "@microsoft/agents-hosting";
 import { DataAgentResponseData } from "../services/dataAgentClient";
 
+export interface CardRenderOptions {
+  /**
+   * Render Teams native Adaptive Card charts (`Chart.Line` / `Chart.VerticalBar`)
+   * for time-series data. Defaults to the `NATIVE_CHARTS_ENABLED` env flag.
+   * When disabled, falls back to the static `chartImageUrl` image.
+   */
+  nativeCharts?: boolean;
+}
+
+function nativeChartsEnabled(): boolean {
+  return (process.env.NATIVE_CHARTS_ENABLED ?? "true") !== "false";
+}
+
 function buildStatelessFooter(): any {
   return {
     type: "ColumnSet",
@@ -40,15 +53,17 @@ function buildStatelessFooter(): any {
 
 export function buildQueryResultCard(
   data: DataAgentResponseData,
-  query: string
+  query: string,
+  options: CardRenderOptions = {}
 ) {
+  const useNativeCharts = options.nativeCharts ?? nativeChartsEnabled();
   switch (data.type) {
     case "table":
       return buildTableCard(data, query);
     case "metrics":
       return buildMetricsCard(data, query);
     case "timeseries":
-      return buildTimeseriesCard(data, query);
+      return buildTimeseriesCard(data, query, useNativeCharts);
     default:
       return buildTableCard(data, query);
   }
@@ -144,7 +159,8 @@ function buildMetricsCard(
 
 function buildTimeseriesCard(
   data: DataAgentResponseData,
-  query: string
+  query: string,
+  useNativeCharts: boolean
 ) {
   const labels = data.seriesLabels || [];
   const seriesColumns = ["Series", ...labels];
@@ -160,7 +176,10 @@ function buildTimeseriesCard(
     },
   ];
 
-  if (data.chartImageUrl) {
+  const nativeChart = useNativeCharts ? buildNativeChart(data) : undefined;
+  if (nativeChart) {
+    body.push(nativeChart);
+  } else if (data.chartImageUrl) {
     body.push({
       type: "Image",
       url: data.chartImageUrl,
@@ -193,6 +212,40 @@ function buildTimeseriesCard(
   };
 
   return CardFactory.adaptiveCard(card);
+}
+
+/**
+ * Builds a Teams native Adaptive Card chart element from time-series data.
+ * Multi-series → `Chart.Line`; single-series with `chartType: "bar"` →
+ * `Chart.VerticalBar`. Returns undefined when there is no plottable data.
+ *
+ * Schema matches Microsoft's Teams chart samples: `Chart.Line` uses
+ * `data: [{ legend, values: [{ x, y }] }]`; `Chart.VerticalBar` uses
+ * `data: [{ x, y }]`.
+ */
+function buildNativeChart(data: DataAgentResponseData): any | undefined {
+  const series = data.series || [];
+  const labels = data.seriesLabels || [];
+  if (series.length === 0 || labels.length === 0) return undefined;
+
+  const base = { title: data.title, colorSet: "categorical" };
+
+  if (data.chartType === "bar" && series.length === 1) {
+    return {
+      type: "Chart.VerticalBar",
+      ...base,
+      data: series[0].values.map((y, i) => ({ x: labels[i] ?? String(i), y })),
+    };
+  }
+
+  return {
+    type: "Chart.Line",
+    ...base,
+    data: series.map((s) => ({
+      legend: s.label,
+      values: s.values.map((y, i) => ({ x: labels[i] ?? String(i), y })),
+    })),
+  };
 }
 
 function buildTabularSections(columns: string[], rows: (string | number)[][]): any[] {

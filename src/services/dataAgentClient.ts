@@ -22,6 +22,7 @@ export interface DataAgentResponseData {
   metrics?: { label: string; value: string; change?: string }[];
   series?: { label: string; values: number[] }[];
   seriesLabels?: string[];
+  chartType?: "line" | "bar";
   chartImageUrl?: string;
   chartAltText?: string;
 }
