@@ -18,6 +18,7 @@
     "dev": "ts-node src/index.ts",
     "mock-api": "ts-node tools/mockDataAgentApi.ts",
     "mock-mcp": "ts-node tools/mockMcpServer.ts",
+    "card:preview": "ts-node tools/cardPreview.ts",
     "dev:full": "concurrently \"npm run mock-api\" \"cross-env USE_MOCK_CLIENT=false DATA_AGENT_API_BASE_URL=http://localhost:4000 DISABLE_AUTH=true npm run dev\"",
     "dev:teams": "concurrently -k \"npm run mock-api\" \"cross-env USE_MOCK_CLIENT=false DATA_AGENT_API_BASE_URL=http://localhost:4000 DISABLE_AUTH=false npm run dev\"",
     "dev:playground": "concurrently -k \"npm run mock-api\" \"cross-env USE_MOCK_CLIENT=false DATA_AGENT_API_BASE_URL=http://localhost:4000 DISABLE_AUTH=true npm run dev\"",

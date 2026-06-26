@@ -1,5 +1,6 @@
 node_modules/
 dist/
+card-previews/
 env/.env.*
 !env/.env.*.example
 .env

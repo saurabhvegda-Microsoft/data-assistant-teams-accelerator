@@ -279,6 +279,44 @@ You should see the staged progress messages followed by the mapped result. The
 client to use is selected by `DATA_AGENT_CLIENT` (`mock` | `rest` | `mcp`); set
 `STREAMING_ENABLED=false` to fall back to a typing indicator + single card.
 
+### Viewing the cards & charts in Teams
+
+Native charts (`Chart.Line` / `Chart.VerticalBar`) and streamed progress only
+render on a Microsoft Teams surface. Two ways to see them:
+
+**A. M365 Agents Playground — quickest (no tenant, no tunnel).**
+
+```pwsh
+# Terminal 1 — bot + mock data (auth disabled)
+npm run dev:playground
+# Terminal 2 — open the Teams-like test UI at http://localhost:56150
+npm run playground
+```
+
+Then chat with the bot: `monthly revenue trend` (line chart), `graph test`
+(chart demo), `revenue by region` (table), `total revenue` (metrics). Toggle
+`NATIVE_CHARTS_ENABLED=false` to see the static-image fallback. If the bot
+doesn't respond in the Test Tool, add `STREAMING_ENABLED=false` (streaming UX is
+best verified in real Teams).
+
+> The Test Tool mirrors Teams rendering, but very new chart elements may not draw
+> there — the real Teams path below is authoritative.
+
+**B. Real Teams — authoritative (charts + streaming).**
+
+Sideload the app via the "Manual local-test loop" or "Deploy to Azure" steps
+above (needs an M365 tenant, an Azure Bot, and a Dev Tunnel or Container App).
+Ensure `NATIVE_CHARTS_ENABLED=true` and `STREAMING_ENABLED=true`, then in a 1:1
+chat:
+- `monthly revenue trend` → line chart; a single-series query → bar chart
+- watch the blue "informative update" progress bar before the final card
+
+Dump the exact card payloads (for inspection / sharing) without running anything:
+
+```pwsh
+npm run card:preview   # writes card-previews/*.json (line, bar, table, metrics, image-fallback)
+```
+
 ## Documentation
 
 - [PRD](docs/PRD.md) — Product requirements, user stories, phased delivery plan
