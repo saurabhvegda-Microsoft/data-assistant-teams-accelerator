@@ -110,4 +110,27 @@ describe("buildQueryResultCard", () => {
     expect(body.find((item) => item.type === "Chart.Line")).toBeDefined();
     expect(body.find((item) => item.type === "Chart.VerticalBar")).toBeUndefined();
   });
+
+  it("adds a New conversation action and a contextual footer when history is enabled", () => {
+    process.env.CONVERSATION_HISTORY_ENABLED = "true";
+    try {
+      const data: DataAgentResponseData = {
+        type: "table",
+        title: "t",
+        columns: ["A"],
+        rows: [["1"]],
+        sql: "SELECT 1",
+      };
+      const attachment: any = buildQueryResultCard(data, "q");
+      const actions = attachment.content.actions as any[];
+      expect(
+        actions.some(
+          (a) => a.type === "Action.Submit" && a.data?.action === "newConversation"
+        )
+      ).toBe(true);
+      expect(JSON.stringify(attachment.content.body)).toContain("Contextual");
+    } finally {
+      delete process.env.CONVERSATION_HISTORY_ENABLED;
+    }
+  });
 });

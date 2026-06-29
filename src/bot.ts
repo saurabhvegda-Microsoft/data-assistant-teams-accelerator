@@ -13,6 +13,11 @@ import { createRateLimitMiddleware } from "./middleware/rateLimitMiddleware";
 import { createPersonalChatOnlyMiddleware } from "./middleware/personalChatOnlyMiddleware";
 import { UserContext } from "./types";
 import { createUserAuthService, UserAuthService } from "./services/userAuth";
+import {
+  createConversationSessionService,
+  ConversationSessionService,
+  isResetCommand,
+} from "./services/conversationSession";
 import { createLogger } from "./logger";
 
 const logger = createLogger("bot");
@@ -33,11 +38,13 @@ function extractSsoAssertion(context: TurnContext): string | undefined {
 export class DataAssistantBot extends ActivityHandler {
   private dataAgentClient: IDataAgentClient;
   private userAuthService?: UserAuthService;
+  private conversationSession?: ConversationSessionService;
 
   constructor() {
     super();
     this.dataAgentClient = createDataAgentClient();
     this.userAuthService = createUserAuthService();
+    this.conversationSession = createConversationSessionService();
 
     // PCO guard runs FIRST so blocked contexts short-circuit before audit and rate-limit run.
     this.onTurn(createPersonalChatOnlyMiddleware());
@@ -55,6 +62,25 @@ export class DataAssistantBot extends ActivityHandler {
     });
 
     this.onMessage(async (context, next) => {
+      const conversationId = context.activity.conversation?.id || "unknown";
+
+      // "New conversation" reset — slash command or the result card's Submit
+      // action. Handled before the empty-text guard (the button has no text).
+      if (this.conversationSession?.isEnabled()) {
+        const submitAction = (context.activity.value as { action?: string } | undefined)?.action;
+        const text = context.activity.text?.trim() ?? "";
+        if (submitAction === "newConversation" || isResetCommand(text)) {
+          this.conversationSession.resetSession(conversationId);
+          await context.sendActivity(
+            MessageFactory.text(
+              "🆕 Started a new conversation — earlier context has been cleared."
+            )
+          );
+          await next();
+          return;
+        }
+      }
+
       const userMessage = context.activity.text?.trim();
       if (!userMessage) {
         await next();
@@ -71,6 +97,11 @@ export class DataAssistantBot extends ActivityHandler {
       };
 
       await this.resolveUserToken(context, userContext);
+      if (this.conversationSession?.isEnabled()) {
+        userContext.sessionId = this.conversationSession.getSessionId(
+          userContext.conversationId
+        );
+      }
 
       // Stream interim progress (the MCP's "thoughts") as Teams informative
       // updates when the channel supports streaming (personal chat). Otherwise

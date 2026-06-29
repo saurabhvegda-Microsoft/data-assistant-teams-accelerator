@@ -1,5 +1,6 @@
 import { CardFactory } from "@microsoft/agents-hosting";
 import { DataAgentResponseData } from "../services/dataAgentClient";
+import { conversationHistoryEnabled } from "../services/conversationSession";
 
 export interface CardRenderOptions {
   /**
@@ -15,6 +16,11 @@ function nativeChartsEnabled(): boolean {
 }
 
 function buildStatelessFooter(): any {
+  const contextual = conversationHistoryEnabled();
+  const label = contextual ? "\uD83D\uDCAC Contextual" : "\uD83D\uDEE1\uFE0F Stateless";
+  const detail = contextual
+    ? "Conversation context maintained for this chat"
+    : "No conversation history sent to backend";
   return {
     type: "ColumnSet",
     spacing: "Medium",
@@ -26,7 +32,7 @@ function buildStatelessFooter(): any {
         items: [
           {
             type: "TextBlock",
-            text: "\uD83D\uDEE1\uFE0F Stateless",
+            text: label,
             color: "Good",
             size: "Small",
             weight: "Bolder",
@@ -40,7 +46,7 @@ function buildStatelessFooter(): any {
         items: [
           {
             type: "TextBlock",
-            text: "No conversation history sent to backend",
+            text: detail,
             isSubtle: true,
             size: "Small",
             spacing: "None",
@@ -323,6 +329,14 @@ function buildActions(sql?: string, query?: string): any[] {
           },
         ],
       },
+    });
+  }
+
+  if (conversationHistoryEnabled()) {
+    actions.push({
+      type: "Action.Submit",
+      title: "🆕 New conversation",
+      data: { action: "newConversation" },
     });
   }
 

@@ -2,6 +2,8 @@ import { McpDataAgentClient, mapToolResult } from "../src/services/mcpDataAgentC
 import { buildMockMcpServer } from "../src/mcp/mockMcpServer";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { UserContext } from "../src/types";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 
 const USER: UserContext = {
   userId: "u1",
@@ -171,5 +173,55 @@ describe("mapToolResult", () => {
     const r = mapToolResult({ content: [] });
     expect(r.success).toBe(false);
     expect(r.error).toMatch(/empty/i);
+  });
+});
+
+describe("McpDataAgentClient session propagation", () => {
+  function capturingServer() {
+    const calls: { question: string; sessionId?: string }[] = [];
+    const server = new McpServer({ name: "capture", version: "1.0.0" });
+    server.registerTool(
+      "query",
+      { inputSchema: { question: z.string(), sessionId: z.string().optional() } },
+      async (args) => {
+        calls.push(args);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: true,
+                data: { type: "table", title: "x", columns: [], rows: [] },
+              }),
+            },
+          ],
+        };
+      }
+    );
+    return { server, calls };
+  }
+
+  it("passes sessionId to the MCP tool when present", async () => {
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const { server, calls } = capturingServer();
+    await server.connect(st);
+    const client = new McpDataAgentClient({ transportFactory: () => ct });
+
+    await client.query("q", { ...USER, sessionId: "sess-123" });
+
+    expect(calls[0].sessionId).toBe("sess-123");
+    await server.close();
+  });
+
+  it("omits sessionId when not present (single-turn)", async () => {
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const { server, calls } = capturingServer();
+    await server.connect(st);
+    const client = new McpDataAgentClient({ transportFactory: () => ct });
+
+    await client.query("q", USER);
+
+    expect(calls[0].sessionId).toBeUndefined();
+    await server.close();
   });
 });

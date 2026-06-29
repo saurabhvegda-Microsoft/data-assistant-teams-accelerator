@@ -72,8 +72,12 @@ export class McpDataAgentClient implements IDataAgentClient {
 
         const { client, transport } = await this.connect(userContext);
         try {
+          const toolArguments: Record<string, unknown> = { question };
+          if (userContext?.sessionId) {
+            toolArguments.sessionId = userContext.sessionId;
+          }
           const result = await client.callTool(
-            { name: this.toolName, arguments: { question } },
+            { name: this.toolName, arguments: toolArguments },
             undefined,
             {
               timeout: this.timeoutMs,

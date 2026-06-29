@@ -76,9 +76,17 @@ export class DataAgentClient implements IDataAgentClient {
         if (userContext?.userId) {
           headers["X-User-Id"] = userContext.userId;
         }
-        // Enforce stateless processing for every request.
-        headers["X-Conversation-Context"] = "single-turn";
-        headers["X-History-Policy"] = "none";
+        // Conversation context: when the bot supplies a session id (history
+        // enabled) the Data Agent maintains history keyed by it; otherwise every
+        // request is single-turn / stateless.
+        if (userContext?.sessionId) {
+          headers["X-Conversation-Session"] = userContext.sessionId;
+          headers["X-Conversation-Context"] = "session";
+          headers["X-History-Policy"] = "session";
+        } else {
+          headers["X-Conversation-Context"] = "single-turn";
+          headers["X-History-Policy"] = "none";
+        }
 
         const response = await axios.post(
           `${this.baseUrl}/api/query`,
