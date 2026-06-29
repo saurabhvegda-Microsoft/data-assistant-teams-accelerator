@@ -2,8 +2,9 @@ import {
   ActivityHandler,
   TurnContext,
   MessageFactory,
+  StreamingResponse,
 } from "@microsoft/agents-hosting";
-import { createDataAgentClient, IDataAgentClient } from "./services/dataAgentClient";
+import { createDataAgentClient, IDataAgentClient, ProgressUpdate } from "./services/dataAgentClient";
 import { buildQueryResultCard } from "./cards/queryResultCard";
 import { buildErrorCard } from "./cards/errorCard";
 import { buildWelcomeCard } from "./cards/welcomeCard";
@@ -11,16 +12,39 @@ import { createAuditMiddleware } from "./middleware/auditMiddleware";
 import { createRateLimitMiddleware } from "./middleware/rateLimitMiddleware";
 import { createPersonalChatOnlyMiddleware } from "./middleware/personalChatOnlyMiddleware";
 import { UserContext } from "./types";
+import { createUserAuthService, UserAuthService } from "./services/userAuth";
+import {
+  createConversationSessionService,
+  ConversationSessionService,
+  isResetCommand,
+} from "./services/conversationSession";
 import { createLogger } from "./logger";
 
 const logger = createLogger("bot");
 
+/**
+ * Best-effort extraction of the Teams SSO token (the OBO assertion) for the
+ * current turn. With Teams SSO configured, the token arrives on the
+ * `signin/tokenExchange` invoke activity's value. Completing the silent
+ * sign-in/consent flow (OAuthPrompt / Authorization.exchangeToken) requires an
+ * Azure Bot OAuth connection — see the README "User authentication" section.
+ */
+function extractSsoAssertion(context: TurnContext): string | undefined {
+  const value = (context.activity as { value?: { token?: unknown } }).value;
+  if (value && typeof value.token === "string") return value.token;
+  return undefined;
+}
+
 export class DataAssistantBot extends ActivityHandler {
   private dataAgentClient: IDataAgentClient;
+  private userAuthService?: UserAuthService;
+  private conversationSession?: ConversationSessionService;
 
   constructor() {
     super();
     this.dataAgentClient = createDataAgentClient();
+    this.userAuthService = createUserAuthService();
+    this.conversationSession = createConversationSessionService();
 
     // PCO guard runs FIRST so blocked contexts short-circuit before audit and rate-limit run.
     this.onTurn(createPersonalChatOnlyMiddleware());
@@ -38,6 +62,25 @@ export class DataAssistantBot extends ActivityHandler {
     });
 
     this.onMessage(async (context, next) => {
+      const conversationId = context.activity.conversation?.id || "unknown";
+
+      // "New conversation" reset — slash command or the result card's Submit
+      // action. Handled before the empty-text guard (the button has no text).
+      if (this.conversationSession?.isEnabled()) {
+        const submitAction = (context.activity.value as { action?: string } | undefined)?.action;
+        const text = context.activity.text?.trim() ?? "";
+        if (submitAction === "newConversation" || isResetCommand(text)) {
+          this.conversationSession.resetSession(conversationId);
+          await context.sendActivity(
+            MessageFactory.text(
+              "🆕 Started a new conversation — earlier context has been cleared."
+            )
+          );
+          await next();
+          return;
+        }
+      }
+
       const userMessage = context.activity.text?.trim();
       if (!userMessage) {
         await next();
@@ -53,17 +96,46 @@ export class DataAssistantBot extends ActivityHandler {
         channelId: context.activity.channelId || "unknown",
       };
 
-      await context.sendActivity({ type: "typing" } as any);
+      await this.resolveUserToken(context, userContext);
+      if (this.conversationSession?.isEnabled()) {
+        userContext.sessionId = this.conversationSession.getSessionId(
+          userContext.conversationId
+        );
+      }
+
+      // Stream interim progress (the MCP's "thoughts") as Teams informative
+      // updates when the channel supports streaming (personal chat). Otherwise
+      // fall back to a typing indicator + a single final card.
+      const streamingEnabled =
+        (process.env.STREAMING_ENABLED ?? "true") !== "false";
+      const stream = new StreamingResponse(context);
+      const useStreaming = streamingEnabled && stream.isStreamingChannel;
+
+      const onProgress = useStreaming
+        ? (update: ProgressUpdate) =>
+            stream.queueInformativeUpdate(update.message.slice(0, 1000))
+        : undefined;
+
+      if (useStreaming) {
+        stream.queueInformativeUpdate("Working on your question…");
+      } else {
+        await context.sendActivity({ type: "typing" } as any);
+      }
 
       const startTime = Date.now();
       logger.info("query.start", {
         userId: userContext.userId,
         aadObjectId: userContext.aadObjectId,
+        streaming: useStreaming,
         query,
       });
 
       try {
-        const result = await this.dataAgentClient.query(query, userContext);
+        const result = await this.dataAgentClient.query(
+          query,
+          userContext,
+          onProgress
+        );
 
         logger.info("query.complete", {
           userId: userContext.userId,
@@ -71,16 +143,12 @@ export class DataAssistantBot extends ActivityHandler {
           duration: Date.now() - startTime,
         });
 
-        if (result.success && result.data) {
-          const card = buildQueryResultCard(result.data, query);
-          await context.sendActivity(MessageFactory.attachment(card));
-        } else {
-          const card = buildErrorCard(
-            result.error || "Unknown error",
-            result.suggestions
-          );
-          await context.sendActivity(MessageFactory.attachment(card));
-        }
+        const card =
+          result.success && result.data
+            ? buildQueryResultCard(result.data, query)
+            : buildErrorCard(result.error || "Unknown error", result.suggestions);
+
+        await this.deliver(context, stream, useStreaming, card);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Unexpected error";
@@ -92,7 +160,7 @@ export class DataAssistantBot extends ActivityHandler {
         const card = buildErrorCard(
           `Trouble connecting to data service: ${message}`
         );
-        await context.sendActivity(MessageFactory.attachment(card));
+        await this.deliver(context, stream, useStreaming, card);
       }
 
       await next();
@@ -101,6 +169,50 @@ export class DataAssistantBot extends ActivityHandler {
 
   async checkDependencyHealth(): Promise<{ status: string; latency: number }> {
     return this.dataAgentClient.healthCheck();
+  }
+
+  /**
+   * Resolves the per-user Data Agent token for this turn (Teams SSO + OBO) and
+   * stashes it on the userContext. No-op unless user auth is enabled; never
+   * throws (falls back to the client's static credential on failure).
+   */
+  private async resolveUserToken(
+    context: TurnContext,
+    userContext: UserContext
+  ): Promise<void> {
+    if (!this.userAuthService?.isEnabled()) return;
+    try {
+      const assertion = extractSsoAssertion(context);
+      const token = await this.userAuthService.getDataAgentToken(
+        assertion,
+        userContext.userId
+      );
+      if (token) userContext.userToken = token;
+    } catch (err) {
+      logger.warn("userAuth.resolveFailed", {
+        userId: userContext.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private async deliver(
+    context: TurnContext,
+    stream: StreamingResponse,
+    useStreaming: boolean,
+    card: ReturnType<typeof buildQueryResultCard>
+  ): Promise<void> {
+    if (useStreaming) {
+      try {
+        stream.setGeneratedByAILabel(true);
+        stream.setAttachments([card]);
+        await stream.endStream();
+        return;
+      } catch {
+        // Streaming failed mid-flight — fall back to a normal message.
+      }
+    }
+    await context.sendActivity(MessageFactory.attachment(card));
   }
 
   private removeMentions(context: TurnContext): string {

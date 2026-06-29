@@ -1,6 +1,7 @@
 import axios from "axios";
 import { trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { MockDataAgentClient } from "./mockDataAgentClient";
+import { createMcpDataAgentClient } from "./mcpDataAgentClient";
 import { UserContext } from "../types";
 
 const tracer = trace.getTracer("data-assistant-teams-bot");
@@ -21,12 +22,23 @@ export interface DataAgentResponseData {
   metrics?: { label: string; value: string; change?: string }[];
   series?: { label: string; values: number[] }[];
   seriesLabels?: string[];
+  chartType?: "line" | "bar";
   chartImageUrl?: string;
   chartAltText?: string;
 }
 
+export interface ProgressUpdate {
+  message: string;
+  progress?: number;
+  total?: number;
+}
+
 export interface IDataAgentClient {
-  query(question: string, userContext?: UserContext): Promise<DataAgentQueryResult>;
+  query(
+    question: string,
+    userContext?: UserContext,
+    onProgress?: (update: ProgressUpdate) => void
+  ): Promise<DataAgentQueryResult>;
   healthCheck(): Promise<{ status: string; latency: number }>;
 }
 
@@ -39,7 +51,11 @@ export class DataAgentClient implements IDataAgentClient {
     this.apiKey = apiKey;
   }
 
-  async query(question: string, userContext?: UserContext): Promise<DataAgentQueryResult> {
+  async query(
+    question: string,
+    userContext?: UserContext,
+    _onProgress?: (update: ProgressUpdate) => void
+  ): Promise<DataAgentQueryResult> {
     return tracer.startActiveSpan("dataAgent.api.query", { kind: SpanKind.CLIENT }, async (span) => {
       span.setAttribute("dataAgent.query.text", question);
       span.setAttribute("dataAgent.user.id", userContext?.userId ?? "unknown");
@@ -49,8 +65,10 @@ export class DataAgentClient implements IDataAgentClient {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
         };
-        if (this.apiKey) {
-          headers["Authorization"] = `Bearer ${this.apiKey}`;
+        // Prefer the per-user token (Teams SSO + OBO); fall back to the static key.
+        const authToken = userContext?.userToken ?? this.apiKey;
+        if (authToken) {
+          headers["Authorization"] = `Bearer ${authToken}`;
         }
         if (userContext?.aadObjectId) {
           headers["X-User-AAD-Object-Id"] = userContext.aadObjectId;
@@ -58,9 +76,17 @@ export class DataAgentClient implements IDataAgentClient {
         if (userContext?.userId) {
           headers["X-User-Id"] = userContext.userId;
         }
-        // Enforce stateless processing for every request.
-        headers["X-Conversation-Context"] = "single-turn";
-        headers["X-History-Policy"] = "none";
+        // Conversation context: when the bot supplies a session id (history
+        // enabled) the Data Agent maintains history keyed by it; otherwise every
+        // request is single-turn / stateless.
+        if (userContext?.sessionId) {
+          headers["X-Conversation-Session"] = userContext.sessionId;
+          headers["X-Conversation-Context"] = "session";
+          headers["X-History-Policy"] = "session";
+        } else {
+          headers["X-Conversation-Context"] = "single-turn";
+          headers["X-History-Policy"] = "none";
+        }
 
         const response = await axios.post(
           `${this.baseUrl}/api/query`,
@@ -96,12 +122,26 @@ export class DataAgentClient implements IDataAgentClient {
   }
 }
 
+/**
+ * Selects the Data Agent client.
+ *
+ * `DATA_AGENT_CLIENT` (mock | rest | mcp) takes precedence when set. When it is
+ * not set, the legacy `USE_MOCK_CLIENT` behavior is preserved for backward
+ * compatibility (mock unless USE_MOCK_CLIENT=false, then REST).
+ */
 export function createDataAgentClient(): IDataAgentClient {
-  const useMock = process.env.USE_MOCK_CLIENT !== "false";
-  if (useMock) {
-    return new MockDataAgentClient();
-  }
+  const explicit = (process.env.DATA_AGENT_CLIENT || "").toLowerCase();
 
+  if (explicit === "mock") return new MockDataAgentClient();
+  if (explicit === "mcp") return createMcpDataAgentClient();
+  if (explicit === "rest") return createRestClient();
+
+  const useMock = process.env.USE_MOCK_CLIENT !== "false";
+  if (useMock) return new MockDataAgentClient();
+  return createRestClient();
+}
+
+function createRestClient(): IDataAgentClient {
   const baseUrl = process.env.DATA_AGENT_API_BASE_URL;
   if (!baseUrl) {
     throw new Error(

@@ -41,9 +41,9 @@ write-up.
 | Outbound HTTP | [`axios`](https://github.com/axios/axios) `^1.7.0` | Used by the SDK's ConnectorClient and our `services/dataAgentClient` |
 | Auth | `@azure/identity` `^4.13.1`, `@azure/core-auth` `^1.10.1` | App Reg client-secret flow; SDK handles MSAL internally |
 | Observability | OpenTelemetry SDK (`@opentelemetry/sdk-node` `^0.218.0`) + Azure Monitor exporter (`@azure/monitor-opentelemetry-exporter`) | Traces, metrics, structured JSON logs |
-| Adaptive Cards | v1.5 schema | Built in `src/cards/` (queryResultCard, errorCard, personalChatOnlyCard, welcomeCard) |
+| Adaptive Cards | v1.5 schema + Teams native charts (`Chart.Line` / `Chart.VerticalBar`) | Built in `src/cards/`; time-series render as native charts (toggle `NATIVE_CHARTS_ENABLED`), with a static image fallback |
 | Language / runtime | TypeScript 5.4, Node.js **22 LTS** in container, ≥18 supported locally | `tsc` to `dist/`, no bundler |
-| Tests | Jest `^29.7.0` + ts-jest | 53 tests across 9 suites |
+| Tests | Jest `^29.7.0` + ts-jest | 71 tests across 10 suites |
 | Container | `node:22-alpine` base, `Dockerfile` at repo root | ~150 MB image |
 | Container registry | Azure Container Registry (Basic SKU) | Builds done in-cloud via `az acr build` (no local Docker required) |
 | Hosting | **Azure Container Apps** (Consumption plan, `min-replicas=1`) | Min-replicas pinned to 1 so the demo container stays warm |
@@ -246,12 +246,84 @@ App Service VM quota, but **on constrained constrained dev subscriptions you may
 └── test/                   # Unit tests
 ```
 
+## Testing
+
+Type-check, unit tests, and lint:
+
+```bash
+npm run build     # tsc type-check + emit to dist/
+npm test          # Jest unit tests (71 across 10 suites)
+npm run lint      # ESLint
+```
+
+### Local MCP + streaming smoke test
+
+Exercise the MCP client and streamed progress updates end-to-end against the
+bundled mock MCP server — no Teams tenant or real Data Agent required:
+
+```pwsh
+# Terminal 1 — mock MCP server (Streamable HTTP on :4100)
+npm run mock-mcp
+
+# Terminal 2 — run the bot against it (MCP backend, auth disabled for local dev)
+npm run dev:mcp
+```
+
+Or drive the MCP client directly after `npm run build`:
+
+```pwsh
+node -e "(async()=>{const {McpDataAgentClient}=require('./dist/services/mcpDataAgentClient.js');const c=new McpDataAgentClient({endpointUrl:'http://localhost:4100/mcp'});const ups=[];const r=await c.query('revenue by region',{userId:'u1',conversationId:'c1',channelId:'msteams'},u=>ups.push(u.message));console.log('progress:',ups);console.log('result:',r.success,r.data&&r.data.type);})()"
+```
+
+You should see the staged progress messages followed by the mapped result. The
+client to use is selected by `DATA_AGENT_CLIENT` (`mock` | `rest` | `mcp`); set
+`STREAMING_ENABLED=false` to fall back to a typing indicator + single card.
+
+### Viewing the cards & charts in Teams
+
+Native charts (`Chart.Line` / `Chart.VerticalBar`) and streamed progress only
+render on a Microsoft Teams surface. Two ways to see them:
+
+**A. M365 Agents Playground — quickest (no tenant, no tunnel).**
+
+```pwsh
+# Terminal 1 — bot + mock data (auth disabled)
+npm run dev:playground
+# Terminal 2 — open the Teams-like test UI at http://localhost:56150
+npm run playground
+```
+
+Then chat with the bot: `monthly revenue trend` (line chart), `graph test`
+(chart demo), `revenue by region` (table), `total revenue` (metrics). Toggle
+`NATIVE_CHARTS_ENABLED=false` to see the static-image fallback. If the bot
+doesn't respond in the Test Tool, add `STREAMING_ENABLED=false` (streaming UX is
+best verified in real Teams).
+
+> The Test Tool mirrors Teams rendering, but very new chart elements may not draw
+> there — the real Teams path below is authoritative.
+
+**B. Real Teams — authoritative (charts + streaming).**
+
+Sideload the app via the "Manual local-test loop" or "Deploy to Azure" steps
+above (needs an M365 tenant, an Azure Bot, and a Dev Tunnel or Container App).
+Ensure `NATIVE_CHARTS_ENABLED=true` and `STREAMING_ENABLED=true`, then in a 1:1
+chat:
+- `monthly revenue trend` → line chart; a single-series query → bar chart
+- watch the blue "informative update" progress bar before the final card
+
+Dump the exact card payloads (for inspection / sharing) without running anything:
+
+```pwsh
+npm run card:preview   # writes card-previews/*.json (line, bar, table, metrics, image-fallback)
+```
+
 ## Documentation
 
 - [PRD](docs/PRD.md) — Product requirements, user stories, phased delivery plan
 - [Architecture](docs/ARCHITECTURE.md) — Technical architecture, framework comparison, deployment strategy
 - [Personal Chat Only Plan](docs/PERSONAL_CHAT_ONLY_PLAN.md) — Manifest scope + runtime guard rationale and rollout (shipped)
 - [Testing Real Teams](docs/TESTING_REAL_TEAMS.md) — End-to-end test guide including Stateless Validation & Demo (Production)
+- [MCP Tool Contract](docs/MCP_CONTRACT.md) — what the Data Agent must implement to be MCP-compatible (tool name, schemas, progress, history)
 
 ## Configuration
 
@@ -264,7 +336,7 @@ App Service VM quota, but **on constrained constrained dev subscriptions you may
 | `BOT_ID` | Azure Bot resource ID | Auto-generated by `atk provision` |
 | `BOT_PASSWORD` | Bot app secret | Auto-generated |
 
-Stateless policy is always enforced by code: each query is single-turn and includes `X-Conversation-Context=single-turn` and `X-History-Policy=none`.
+By default each query is single-turn (`X-Conversation-Context=single-turn`, `X-History-Policy=none`). Set `CONVERSATION_HISTORY_ENABLED=true` to maintain **server-side** conversation history — the bot sends a stable session id per chat and offers a **New conversation** reset (slash command `/new` or the card button), while storing only the opaque id, never message content. See [docs/MCP_CONTRACT.md](docs/MCP_CONTRACT.md).
 
 ## Scopes
 
@@ -275,6 +347,34 @@ Stateless policy is always enforced by code: each query is single-turn and inclu
 | Team Channel | **No** (blocked by manifest + runtime guard) |
 
 See [docs/PERSONAL_CHAT_ONLY_PLAN.md](docs/PERSONAL_CHAT_ONLY_PLAN.md) for rationale and verification.
+
+## User authentication (Teams SSO + On-Behalf-Of)
+
+By default the bot calls the Data Agent with a static service credential
+(`DATA_AGENT_API_KEY`) and passes the caller's id as a header. To have the Data
+Agent receive the **end user's own JWT** — so Row-Level Security is enforced for
+the actual user rather than a shared identity — enable per-user auth:
+
+1. **Expose an API scope** on the Data Agent's Entra app registration, e.g.
+   `api://<data-agent-app-id>/access_as_user`.
+2. **Configure Teams SSO** for the bot: the manifest declares `webApplicationInfo`
+   (`id` = bot app id, `resource` = `AAD_APPLICATION_ID_URI`, the bot's
+   Application ID URI). Grant the bot app delegated permission to the Data Agent
+   scope and admin-consent.
+3. **Set env** (see `env/.env.*.example`): `USER_AUTH_ENABLED=true`,
+   `DATA_AGENT_SCOPE`, and — if the OBO confidential client differs from the bot —
+   `AAD_CLIENT_ID` / `AAD_CLIENT_SECRET` / `AAD_TENANT_ID`.
+
+At runtime the bot takes the user's Teams SSO token and performs an OAuth 2.0
+**On-Behalf-Of** exchange (`src/services/userAuth.ts`) for a Data Agent-scoped
+token, sent as `Authorization: Bearer` on each request. Tokens are cached per
+user and never logged. When disabled (the default), behavior is unchanged.
+
+> The OBO exchange is implemented and unit-tested. Acquiring the SSO assertion
+> silently on every turn requires an Azure Bot **OAuth connection** (or the
+> `signin/tokenExchange` invoke flow); until that is configured,
+> `getDataAgentToken` returns no token and the bot falls back to the static
+> credential.
 
 ## License
 
