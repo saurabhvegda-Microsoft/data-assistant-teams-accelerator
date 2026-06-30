@@ -18,6 +18,7 @@ import {
   ConversationSessionService,
   isResetCommand,
 } from "./services/conversationSession";
+import { streamingEnabled, verboseThoughtsEnabled } from "./services/streamingPolicy";
 import { createLogger } from "./logger";
 
 const logger = createLogger("bot");
@@ -103,18 +104,18 @@ export class DataAssistantBot extends ActivityHandler {
         );
       }
 
-      // Stream interim progress (the MCP's "thoughts") as Teams informative
-      // updates when the channel supports streaming (personal chat). Otherwise
-      // fall back to a typing indicator + a single final card.
-      const streamingEnabled =
-        (process.env.STREAMING_ENABLED ?? "true") !== "false";
+      // Show a SINGLE "working" indicator between the prompt and the result.
+      // In Teams this is the in-place progress bar; we deliberately do NOT relay
+      // every MCP step as its own chat message (that spams the conversation).
+      // Granular per-step "thoughts" can be opted back in via STREAMING_THOUGHTS_ENABLED.
       const stream = new StreamingResponse(context);
-      const useStreaming = streamingEnabled && stream.isStreamingChannel;
+      const useStreaming = streamingEnabled() && stream.isStreamingChannel;
 
-      const onProgress = useStreaming
-        ? (update: ProgressUpdate) =>
-            stream.queueInformativeUpdate(update.message.slice(0, 1000))
-        : undefined;
+      const onProgress =
+        useStreaming && verboseThoughtsEnabled()
+          ? (update: ProgressUpdate) =>
+              stream.queueInformativeUpdate(update.message.slice(0, 1000))
+          : undefined;
 
       if (useStreaming) {
         stream.queueInformativeUpdate("Working on your question…");
@@ -204,8 +205,11 @@ export class DataAssistantBot extends ActivityHandler {
   ): Promise<void> {
     if (useStreaming) {
       try {
-        stream.setGeneratedByAILabel(true);
+        // Deliver the card as the stream's final message. Setting an explicit
+        // final message (rather than only attachments) prevents the SDK from
+        // emitting its placeholder "end of stream response" text.
         stream.setAttachments([card]);
+        stream.setFinalMessage(MessageFactory.attachment(card));
         await stream.endStream();
         return;
       } catch {
