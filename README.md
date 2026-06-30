@@ -319,6 +319,7 @@ npm run card:preview   # writes card-previews/*.json (line, bar, table, metrics,
 
 ## Documentation
 
+- [Feature Status](docs/FEATURE_STATUS.md) — capability matrix (streamed progress, history, MCP tool, per-user auth, charts), flags, and what each needs to enable
 - [PRD](docs/PRD.md) — Product requirements, user stories, phased delivery plan
 - [Architecture](docs/ARCHITECTURE.md) — Technical architecture, framework comparison, deployment strategy
 - [Personal Chat Only Plan](docs/PERSONAL_CHAT_ONLY_PLAN.md) — Manifest scope + runtime guard rationale and rollout (shipped)
