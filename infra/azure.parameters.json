@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "botId": {
+      "value": "${{BOT_ID}}"
+    },
+    "appServiceName": {
+      "value": "${{APP_SERVICE_NAME}}"
+    },
+    "botServiceName": {
+      "value": "${{BOT_SERVICE_NAME}}"
+    }
+  }
+}
