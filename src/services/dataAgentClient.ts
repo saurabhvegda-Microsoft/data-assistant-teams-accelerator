@@ -11,6 +11,12 @@ export interface DataAgentQueryResult {
   data?: DataAgentResponseData;
   error?: string;
   suggestions?: string[];
+  /**
+   * Outcome discriminator from the data agent (ratified contract 2026-07-13):
+   * answered | clarify | no_data | unauthorized | backend_error. Optional so
+   * legacy/other MCP tools that don't set it are unaffected.
+   */
+  resolution?: string;
 }
 
 export interface DataAgentResponseData {
@@ -25,6 +31,12 @@ export interface DataAgentResponseData {
   chartType?: "line" | "bar";
   chartImageUrl?: string;
   chartAltText?: string;
+  /**
+   * Data source discriminator ("powerbi" | "bigquery"), when the tool provides
+   * it. Absent for tools that don't declare a source — consumers MUST preserve
+   * today's behavior in that case (see source-aware rendering, workstream B4).
+   */
+  source?: "powerbi" | "bigquery";
   /**
    * Optional URL to a fully-interactive chart hosted by the Data Agent. When
    * present (and INTERACTIVE_CHARTS_ENABLED), the result card links to it via an
