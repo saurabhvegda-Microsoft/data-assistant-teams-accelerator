@@ -174,6 +174,41 @@ describe("mapToolResult", () => {
     expect(r.success).toBe(false);
     expect(r.error).toMatch(/empty/i);
   });
+
+  it("carries a data-payload `source` discriminator through to result.data.source", () => {
+    const r = mapToolResult({
+      structuredContent: {
+        type: "table",
+        title: "T",
+        columns: ["A"],
+        rows: [["1"]],
+        source: "bigquery",
+      },
+    });
+    expect(r.success).toBe(true);
+    expect(r.data?.source).toBe("bigquery");
+  });
+
+  it("carries a `resolution` discriminator through to result.resolution", () => {
+    const r = mapToolResult({
+      structuredContent: {
+        type: "metrics",
+        title: "M",
+        metrics: [],
+        resolution: "clarify",
+      },
+    });
+    expect(r.resolution).toBe("clarify");
+  });
+
+  it("leaves source/resolution undefined when the tool omits them (back-compat)", () => {
+    const r = mapToolResult({
+      structuredContent: { type: "table", title: "T", columns: ["A"], rows: [["1"]] },
+    });
+    expect(r.success).toBe(true);
+    expect(r.data?.source).toBeUndefined();
+    expect(r.resolution).toBeUndefined();
+  });
 });
 
 describe("McpDataAgentClient session propagation", () => {

@@ -247,7 +247,14 @@ function coerce(value: unknown): DataAgentQueryResult | undefined {
   }
   // Just the data payload (has a known response `type`).
   if (obj.type === "table" || obj.type === "metrics" || obj.type === "timeseries") {
-    return { success: true, data: obj as unknown as DataAgentResponseData };
+    const result: DataAgentQueryResult = {
+      success: true,
+      data: obj as unknown as DataAgentResponseData,
+    };
+    // Carry the outcome discriminator through when the tool provides it, so
+    // source-aware rendering (workstream B4) can read it. Absent → unchanged.
+    if (typeof obj.resolution === "string") result.resolution = obj.resolution;
+    return result;
   }
   return undefined;
 }
