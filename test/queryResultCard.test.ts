@@ -162,4 +162,48 @@ describe("buildQueryResultCard", () => {
     const actions = (attachment.content.actions as any[]) || [];
     expect(actions.find((a) => a.type === "Action.OpenUrl")).toBeUndefined();
   });
+
+  describe("source-aware SQL disclosure (B4)", () => {
+    const withSql = (source?: "powerbi" | "bigquery", explanation?: string): DataAgentResponseData => ({
+      type: "table",
+      title: "t",
+      columns: ["A"],
+      rows: [["1"]],
+      sql: "SELECT 1",
+      source,
+      explanation,
+    });
+
+    const sqlAction = (attachment: any) =>
+      (attachment.content.actions as any[]).find((a) => a.title === "Show SQL");
+
+    it("suppresses the Show SQL action for Power BI (never exposes DAX)", () => {
+      const attachment: any = buildQueryResultCard(withSql("powerbi"), "q");
+      expect(sqlAction(attachment)).toBeUndefined();
+    });
+
+    it("shows collapsed SQL for BigQuery and renders the explanation in the body", () => {
+      const attachment: any = buildQueryResultCard(
+        withSql("bigquery", "Summed sales by region."),
+        "q"
+      );
+      const action = sqlAction(attachment);
+      expect(action).toBeDefined();
+      expect(action.type).toBe("Action.ShowCard"); // collapsed by default (B5)
+      expect(JSON.stringify(attachment.content.body)).toContain("Summed sales by region.");
+    });
+
+    it("does not render an explanation block for Power BI", () => {
+      const attachment: any = buildQueryResultCard(
+        withSql("powerbi", "should never appear"),
+        "q"
+      );
+      expect(JSON.stringify(attachment.content.body)).not.toContain("should never appear");
+    });
+
+    it("keeps today's behavior when no source is declared (back-compat)", () => {
+      const attachment: any = buildQueryResultCard(withSql(undefined), "q");
+      expect(sqlAction(attachment)).toBeDefined();
+    });
+  });
 });

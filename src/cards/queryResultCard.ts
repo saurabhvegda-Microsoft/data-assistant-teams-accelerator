@@ -106,6 +106,8 @@ function buildTableCard(data: DataAgentResponseData, query: string, interactiveC
     });
   }
 
+  const tableExplanation = buildSourceExplanation(data);
+  if (tableExplanation) body.push(tableExplanation);
   body.push(buildStatelessFooter());
 
   const card = {
@@ -113,7 +115,7 @@ function buildTableCard(data: DataAgentResponseData, query: string, interactiveC
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
     version: "1.5",
     body,
-    actions: buildActions(data.sql, query, interactiveChartUrl),
+    actions: buildActions(data, query, interactiveChartUrl),
   };
 
   return CardFactory.adaptiveCard(card);
@@ -146,25 +148,29 @@ function buildMetricsCard(
     };
   });
 
+  const metricsBody: any[] = [
+    {
+      type: "TextBlock",
+      text: data.title,
+      weight: "Bolder",
+      size: "Medium",
+      wrap: true,
+    },
+    {
+      type: "ColumnSet",
+      columns: metricItems,
+    },
+  ];
+  const metricsExplanation = buildSourceExplanation(data);
+  if (metricsExplanation) metricsBody.push(metricsExplanation);
+  metricsBody.push(buildStatelessFooter());
+
   const card = {
     type: "AdaptiveCard",
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
     version: "1.5",
-    body: [
-      {
-        type: "TextBlock",
-        text: data.title,
-        weight: "Bolder",
-        size: "Medium",
-        wrap: true,
-      },
-      {
-        type: "ColumnSet",
-        columns: metricItems,
-      },
-      buildStatelessFooter(),
-    ],
-    actions: buildActions(data.sql, query, interactiveChartUrl),
+    body: metricsBody,
+    actions: buildActions(data, query, interactiveChartUrl),
   };
 
   return CardFactory.adaptiveCard(card);
@@ -215,6 +221,8 @@ function buildTimeseriesCard(
     });
   }
 
+  const seriesExplanation = buildSourceExplanation(data);
+  if (seriesExplanation) body.push(seriesExplanation);
   body.push(buildStatelessFooter());
 
   const card = {
@@ -222,7 +230,7 @@ function buildTimeseriesCard(
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
     version: "1.5",
     body,
-    actions: buildActions(data.sql, query, interactiveChartUrl),
+    actions: buildActions(data, query, interactiveChartUrl),
   };
 
   return CardFactory.adaptiveCard(card);
@@ -318,7 +326,11 @@ function buildTabularSections(columns: string[], rows: (string | number)[][]): a
   return sections;
 }
 
-function buildActions(sql?: string, query?: string, interactiveChartUrl?: string): any[] {
+function buildActions(
+  data: DataAgentResponseData,
+  query?: string,
+  interactiveChartUrl?: string
+): any[] {
   const actions: any[] = [];
 
   if (interactiveChartUrl) {
@@ -329,7 +341,12 @@ function buildActions(sql?: string, query?: string, interactiveChartUrl?: string
     });
   }
 
-  if (sql) {
+  // Source-aware SQL disclosure (workstream B4, ratified contract 2026-07-13):
+  // Power BI answers must NEVER expose the query (DAX). For BigQuery — or any
+  // tool that does not declare a source — keep today's behavior: a collapsed,
+  // opt-in "Show SQL" card whenever a query string is present.
+  const showQuery = Boolean(data.sql) && data.source !== "powerbi";
+  if (showQuery) {
     actions.push({
       type: "Action.ShowCard",
       title: "Show SQL",
@@ -338,7 +355,7 @@ function buildActions(sql?: string, query?: string, interactiveChartUrl?: string
         body: [
           {
             type: "TextBlock",
-            text: "```sql\n" + sql + "\n```",
+            text: "```sql\n" + data.sql + "\n```",
             wrap: true,
             fontType: "Monospace",
             size: "Small",
@@ -357,4 +374,22 @@ function buildActions(sql?: string, query?: string, interactiveChartUrl?: string
   }
 
   return actions;
+}
+
+/**
+ * A brief, user-facing explanation of how a BigQuery answer was derived
+ * (columns picked / calculations). Returns undefined for Power BI (which needs
+ * no explanation) and for tools that don't declare a BigQuery source, so no
+ * existing card changes.
+ */
+function buildSourceExplanation(data: DataAgentResponseData): any | undefined {
+  if (data.source !== "bigquery" || !data.explanation) return undefined;
+  return {
+    type: "TextBlock",
+    text: `**How this was calculated:** ${data.explanation}`,
+    wrap: true,
+    isSubtle: true,
+    size: "Small",
+    spacing: "Medium",
+  };
 }

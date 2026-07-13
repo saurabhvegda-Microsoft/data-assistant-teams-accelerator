@@ -38,6 +38,12 @@ export interface DataAgentResponseData {
    */
   source?: "powerbi" | "bigquery";
   /**
+   * Brief, user-facing explanation of how a BigQuery answer was derived (columns
+   * picked / calculations). Rendered only for `source === "bigquery"`. Power BI
+   * answers need no explanation (the model pre-computes).
+   */
+  explanation?: string;
+  /**
    * Optional URL to a fully-interactive chart hosted by the Data Agent. When
    * present (and INTERACTIVE_CHARTS_ENABLED), the result card links to it via an
    * "Open interactive chart" action instead of building a bot-hosted page.
