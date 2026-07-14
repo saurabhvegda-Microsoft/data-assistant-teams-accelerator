@@ -14,6 +14,9 @@ Legend: ✅ Available · 🟡 Implemented, requires configuration/decision to en
 | 4 | Per-user JWT to the Data Agent (SSO + OBO) | 🟡 Implemented | `USER_AUTH_ENABLED` (off) | Data Agent API scope/audience + Azure Bot OAuth connection |
 | 5 | Interactive charts in Teams | ✅ Available | `NATIVE_CHARTS_ENABLED` (on) | — |
 | 6 | Interactive chart web view (Stage View) | ✅ Available | `INTERACTIVE_CHARTS_ENABLED` (off) | Set `PUBLIC_BASE_URL` + add the bot host to manifest `validDomains` |
+| 7 | Source-aware output (Power BI hides SQL/DAX; BigQuery shows collapsed SQL + explanation) | ✅ Available | — (driven by response `source`) | Tool returns `source` + (BigQuery) `explanation` |
+| 8 | Large-result CSV / HTML export link | ✅ Available | `RESULT_EXPORT_ENABLED` (off) | Set `PUBLIC_BASE_URL` + add the bot host to manifest `validDomains` |
+| 9 | Long-running query → HTML result link | 🟡 Implemented | `RESULT_EXPORT_ENABLED` (off), `LONG_RUNNING_MS` (90000) | Backend async execution beyond the request timeout (Data Agent) for true deferred delivery |
 
 ---
 
@@ -142,6 +145,54 @@ manifest `validDomains`; otherwise the action opens in the browser.
 
 ---
 
+## 6. Source-aware output (Power BI vs BigQuery)
+
+**Goal:** shape the answer to the data source — never show Power BI's DAX to
+users; for BigQuery, show the SQL (collapsed) plus a short explanation.
+
+**What's implemented:** when a response declares `source`:
+- **Power BI** → the "Show SQL" action is suppressed (DAX is never surfaced) and
+  no calculation explanation is shown (the model pre-computes).
+- **BigQuery** → the SQL stays in a collapsed `Action.ShowCard` and a brief
+  **"How this was calculated"** explanation is rendered in the card body.
+- **No `source`** → unchanged: "Show SQL" appears whenever a query is present, so
+  other MCP tools are unaffected.
+
+**Code:** `src/cards/queryResultCard.ts` (`buildActions`, `buildSourceExplanation`),
+`src/services/mcpDataAgentClient.ts` (`source`/`resolution` pass-through).
+
+## 7. Large-result CSV / HTML export
+
+**Goal:** when a result is too large for the card frame (100s of rows), deliver
+the full set as a downloadable file / link instead of a truncated preview.
+
+**What's implemented:** when `RESULT_EXPORT_ENABLED=true` and a table/metrics
+result exceeds `LARGE_RESULT_ROWS` (default 25), the card keeps its inline
+preview and adds **"⬇️ Download full results (CSV)"** and **"🔗 Open full
+results"** actions. The bot hosts the full result at `/results/:id.csv`
+(RFC-4180 CSV download) and `/results/:id` (HTML table), reusing the same
+TTL/eviction store as interactive charts. Set `PUBLIC_BASE_URL` (and add the host
+to manifest `validDomains`) to open inside Teams.
+
+**Code:** `src/services/resultExport.ts`, `src/index.ts` (`/results/:id(.csv)`),
+`src/cards/queryResultCard.ts`.
+
+## 8. Long-running query → HTML result link
+
+**Goal:** for slow queries (e.g. BigQuery), avoid a blank wait by delivering the
+result as an HTML link (à la the Shelly email flow).
+
+**What's implemented:** the hosted HTML result page (§7) plus a policy
+`isLongRunning(elapsedMs)` gated by `LONG_RUNNING_MS` (default 90000). When a
+query exceeds the threshold, the bot offers the hosted link regardless of result
+size. **Note:** true deferred delivery *beyond the request timeout* (proactive
+completion after the turn disconnects) additionally requires **async execution
+support in the Data Agent** — that backend piece is the remaining dependency.
+
+**Code:** `src/services/resultExport.ts` (`isLongRunning`), `src/bot.ts`.
+
+---
+
 ## Quick reference — feature flags
 
 | Flag | Default | Effect |
@@ -151,6 +202,9 @@ manifest `validDomains`; otherwise the action opens in the browser.
 | `DATA_AGENT_CLIENT` | (mock) | `mock` \| `rest` \| `mcp` backend selector. |
 | `NATIVE_CHARTS_ENABLED` | `true` | Native Adaptive Card charts vs. static image. |
 | `INTERACTIVE_CHARTS_ENABLED` | `false` | "Open interactive chart" action → interactive web view at `/charts/:id`. |
+| `RESULT_EXPORT_ENABLED` | `false` | Large/long-running results → hosted CSV + HTML links (`/results/:id`). |
+| `LARGE_RESULT_ROWS` | `25` | Row count above which a result is offered as a CSV/HTML export. |
+| `LONG_RUNNING_MS` | `90000` | Elapsed-time (ms) above which a query offers the hosted HTML link. |
 | `PUBLIC_BASE_URL` | (localhost) | Public base URL used to build the interactive-chart link. |
 | `USER_AUTH_ENABLED` | `false` | Per-user JWT to the Data Agent (SSO + OBO). |
 | `CONVERSATION_HISTORY_ENABLED` | `false` | Server-side conversation history + reset UX. |

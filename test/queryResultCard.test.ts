@@ -206,4 +206,31 @@ describe("buildQueryResultCard", () => {
       expect(sqlAction(attachment)).toBeDefined();
     });
   });
+
+  describe("large-result export actions (C3/C4)", () => {
+    const bigTable: DataAgentResponseData = {
+      type: "table",
+      title: "t",
+      columns: ["A"],
+      rows: [["1"], ["2"]],
+    };
+
+    it("adds Download CSV + Open full results actions when export urls are provided", () => {
+      const attachment: any = buildQueryResultCard(bigTable, "q", {
+        resultCsvUrl: "https://bot.example.com/results/x.csv",
+        resultHtmlUrl: "https://bot.example.com/results/x",
+      });
+      const actions = attachment.content.actions as any[];
+      const csv = actions.find((a) => a.type === "Action.OpenUrl" && /CSV/i.test(a.title));
+      const html = actions.find((a) => a.type === "Action.OpenUrl" && /open full results/i.test(a.title));
+      expect(csv?.url).toBe("https://bot.example.com/results/x.csv");
+      expect(html?.url).toBe("https://bot.example.com/results/x");
+    });
+
+    it("omits export actions when no export urls are provided (back-compat)", () => {
+      const attachment: any = buildQueryResultCard(bigTable, "q");
+      const actions = (attachment.content.actions as any[]) || [];
+      expect(actions.find((a) => /CSV|full results/i.test(a.title || ""))).toBeUndefined();
+    });
+  });
 });
