@@ -20,6 +20,7 @@ import {
 } from "./services/conversationSession";
 import { streamingEnabled, verboseThoughtsEnabled } from "./services/streamingPolicy";
 import { resolveInteractiveChartUrl } from "./services/interactiveChart";
+import { resolveResultExportUrls, isLongRunning } from "./services/resultExport";
 import { createLogger } from "./logger";
 
 const logger = createLogger("bot");
@@ -119,7 +120,7 @@ export class DataAssistantBot extends ActivityHandler {
           : undefined;
 
       if (useStreaming) {
-        stream.queueInformativeUpdate("Working on your question…");
+        stream.queueInformativeUpdate("Working on your question — converting it to a query and fetching results…");
       } else {
         await context.sendActivity({ type: "typing" } as any);
       }
@@ -149,9 +150,22 @@ export class DataAssistantBot extends ActivityHandler {
           result.success && result.data
             ? resolveInteractiveChartUrl(result.data)
             : undefined;
+        // Large results → hosted CSV/HTML links (C3). Long-running queries →
+        // offer the hosted link regardless of size (C4), so the user gets a
+        // fast link instead of waiting on / scrolling a big card.
+        const exportUrls =
+          result.success && result.data
+            ? resolveResultExportUrls(result.data, process.env, {
+                force: isLongRunning(Date.now() - startTime),
+              })
+            : undefined;
         const card =
           result.success && result.data
-            ? buildQueryResultCard(result.data, query, { interactiveChartUrl })
+            ? buildQueryResultCard(result.data, query, {
+                interactiveChartUrl,
+                resultCsvUrl: exportUrls?.csvUrl,
+                resultHtmlUrl: exportUrls?.htmlUrl,
+              })
             : buildErrorCard(result.error || "Unknown error", result.suggestions);
 
         await this.deliver(context, stream, useStreaming, card);

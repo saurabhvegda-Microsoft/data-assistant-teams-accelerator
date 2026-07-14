@@ -122,6 +122,7 @@ import express from "express";
 import { CloudAdapter, authorizeJWT, loadAuthConfigFromEnv } from "@microsoft/agents-hosting";
 import { DataAssistantBot } from "./bot";
 import { getChart } from "./services/interactiveChart";
+import { getResult, toCsv, renderResultHtml } from "./services/resultExport";
 import { renderInteractiveChartHtml } from "./charts/interactiveChartPage";
 import { createLogger } from "./logger";
 
@@ -216,6 +217,30 @@ app.get("/charts/:id", (req, res) => {
     return;
   }
   res.type("html").send(renderInteractiveChartHtml(chart));
+});
+
+// Hosted full-result exports for large / long-running answers. The `.csv`
+// suffix is stripped to look up the same stored result as the HTML view.
+app.get("/results/:id.csv", (req, res) => {
+  const result = getResult(req.params.id);
+  if (!result) {
+    res.status(404).type("text/plain").send("Result not found or expired.");
+    return;
+  }
+  const safeName = (result.title || "results").replace(/[^a-z0-9_-]+/gi, "_").slice(0, 60);
+  res
+    .type("text/csv")
+    .set("Content-Disposition", `attachment; filename="${safeName}.csv"`)
+    .send(toCsv(result.columns, result.rows));
+});
+
+app.get("/results/:id", (req, res) => {
+  const result = getResult(req.params.id);
+  if (!result) {
+    res.status(404).type("text/plain").send("Result not found or expired.");
+    return;
+  }
+  res.type("html").send(renderResultHtml(result));
 });
 
 const port = process.env.PORT || 3978;

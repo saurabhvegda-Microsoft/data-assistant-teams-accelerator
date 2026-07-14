@@ -14,6 +14,23 @@ export interface CardRenderOptions {
    * shows an `Action.OpenUrl` that opens a fully-interactive chart web view.
    */
   interactiveChartUrl?: string;
+  /**
+   * Hosted CSV download for a large result (rows exceed the in-card limit).
+   * When set, the card shows a "Download full results (CSV)" action.
+   */
+  resultCsvUrl?: string;
+  /**
+   * Hosted HTML view for a large result. When set, the card shows an
+   * "Open full results" action.
+   */
+  resultHtmlUrl?: string;
+}
+
+/** Links surfaced as card actions (all optional). */
+interface ActionLinks {
+  interactiveChartUrl?: string;
+  resultCsvUrl?: string;
+  resultHtmlUrl?: string;
 }
 
 function nativeChartsEnabled(): boolean {
@@ -68,20 +85,24 @@ export function buildQueryResultCard(
   options: CardRenderOptions = {}
 ) {
   const useNativeCharts = options.nativeCharts ?? nativeChartsEnabled();
-  const interactiveChartUrl = options.interactiveChartUrl;
+  const links: ActionLinks = {
+    interactiveChartUrl: options.interactiveChartUrl,
+    resultCsvUrl: options.resultCsvUrl,
+    resultHtmlUrl: options.resultHtmlUrl,
+  };
   switch (data.type) {
     case "table":
-      return buildTableCard(data, query, interactiveChartUrl);
+      return buildTableCard(data, query, links);
     case "metrics":
-      return buildMetricsCard(data, query, interactiveChartUrl);
+      return buildMetricsCard(data, query, links);
     case "timeseries":
-      return buildTimeseriesCard(data, query, useNativeCharts, interactiveChartUrl);
+      return buildTimeseriesCard(data, query, useNativeCharts, links);
     default:
-      return buildTableCard(data, query, interactiveChartUrl);
+      return buildTableCard(data, query, links);
   }
 }
 
-function buildTableCard(data: DataAgentResponseData, query: string, interactiveChartUrl?: string) {
+function buildTableCard(data: DataAgentResponseData, query: string, links: ActionLinks = {}) {
   const columns = data.columns || [];
   const rows = data.rows || [];
 
@@ -115,7 +136,7 @@ function buildTableCard(data: DataAgentResponseData, query: string, interactiveC
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
     version: "1.5",
     body,
-    actions: buildActions(data, query, interactiveChartUrl),
+    actions: buildActions(data, query, links),
   };
 
   return CardFactory.adaptiveCard(card);
@@ -124,7 +145,7 @@ function buildTableCard(data: DataAgentResponseData, query: string, interactiveC
 function buildMetricsCard(
   data: DataAgentResponseData,
   query: string,
-  interactiveChartUrl?: string
+  links: ActionLinks = {}
 ) {
   const metricItems = (data.metrics || []).map((m) => {
     const items: any[] = [
@@ -170,7 +191,7 @@ function buildMetricsCard(
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
     version: "1.5",
     body: metricsBody,
-    actions: buildActions(data, query, interactiveChartUrl),
+    actions: buildActions(data, query, links),
   };
 
   return CardFactory.adaptiveCard(card);
@@ -180,7 +201,7 @@ function buildTimeseriesCard(
   data: DataAgentResponseData,
   query: string,
   useNativeCharts: boolean,
-  interactiveChartUrl?: string
+  links: ActionLinks = {}
 ) {
   const labels = data.seriesLabels || [];
   const seriesColumns = ["Series", ...labels];
@@ -230,7 +251,7 @@ function buildTimeseriesCard(
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
     version: "1.5",
     body,
-    actions: buildActions(data, query, interactiveChartUrl),
+    actions: buildActions(data, query, links),
   };
 
   return CardFactory.adaptiveCard(card);
@@ -329,15 +350,33 @@ function buildTabularSections(columns: string[], rows: (string | number)[][]): a
 function buildActions(
   data: DataAgentResponseData,
   query?: string,
-  interactiveChartUrl?: string
+  links: ActionLinks = {}
 ): any[] {
   const actions: any[] = [];
 
-  if (interactiveChartUrl) {
+  if (links.interactiveChartUrl) {
     actions.push({
       type: "Action.OpenUrl",
       title: "📊 Open interactive chart",
-      url: interactiveChartUrl,
+      url: links.interactiveChartUrl,
+    });
+  }
+
+  // Large-result delivery (workstream C3): when a result exceeds the in-card
+  // row limit, offer the full set as a hosted CSV download / HTML view instead
+  // of only the truncated preview.
+  if (links.resultCsvUrl) {
+    actions.push({
+      type: "Action.OpenUrl",
+      title: "⬇️ Download full results (CSV)",
+      url: links.resultCsvUrl,
+    });
+  }
+  if (links.resultHtmlUrl) {
+    actions.push({
+      type: "Action.OpenUrl",
+      title: "🔗 Open full results",
+      url: links.resultHtmlUrl,
     });
   }
 
