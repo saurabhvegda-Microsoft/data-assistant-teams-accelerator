@@ -42,12 +42,12 @@ users:
     surname: Williams
     email: sarahw@contoso.com
   - id: user-id-5
-    name: Ambika Rao
-    userPrincipleName: ambikar@contoso.com
+    name: Alex Taylor
+    userPrincipleName: alext@contoso.com
     aadObjectId: 00000000-0000-0000-0000-000000000006
-    givenName: Ambika
-    surname: Rao
-    email: ambikar@contoso.com
+    givenName: Alex
+    surname: Taylor
+    email: alext@contoso.com
 personalChat:
   id: personal-chat-id
 groupChat:
